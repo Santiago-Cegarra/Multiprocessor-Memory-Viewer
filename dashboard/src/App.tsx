@@ -171,8 +171,8 @@ function UMATopology({ cores, lastCoreId }: { cores: CoreState[]; lastCoreId: nu
       <div className="flex flex-col items-center gap-1 p-3 border border-emerald-700 rounded-xl
         bg-emerald-900/20 w-40">
         <Database className="text-emerald-400" size={20} />
-        <div className="text-xs text-emerald-300 font-mono text-center">MEMORIA</div>
-        <div className="text-[10px] text-slate-400">512 KB × 2 Nodos</div>
+        <div className="text-xs text-emerald-300 font-mono text-center">SHARED MEMORY</div>
+        <div className="text-[10px] text-slate-400">1 KB · acceso uniforme</div>
       </div>
     </div>
   );
@@ -239,7 +239,7 @@ function NUMATopology({
                     ${ni === 0 ? 'text-indigo-300' : 'text-purple-300'}`}>
                     MEM {node.id}
                   </div>
-                  <div className="text-[9px] text-slate-400">{node.total_memory / 1024}KB</div>
+                  <div className="text-[9px] text-slate-400">{node.total_memory}B · local</div>
                 </div>
               </div>
             </div>
@@ -331,7 +331,7 @@ function DatasetPanel({
 
 // ─── Log de Eventos de Coherencia ────────────────────────────────────────────
 
-function EventLog({ events }: { events: CoherenceEvent[] }) {
+function EventLog({ events, arch }: { events: CoherenceEvent[]; arch: ArchType }) {
   if (events.length === 0) {
     return (
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5">
@@ -362,9 +362,9 @@ function EventLog({ events }: { events: CoherenceEvent[] }) {
               <th className="pb-1 pr-2">Core</th>
               <th className="pb-1 pr-2">Op</th>
               <th className="pb-1 pr-2">Dirección</th>
-              <th className="pb-1 pr-2">Nodo</th>
+              {arch === 'NUMA' && <th className="pb-1 pr-2">Nodo</th>}
               <th className="pb-1 pr-2">Latencia</th>
-              <th className="pb-1 pr-2">Tipo</th>
+              {arch === 'NUMA' && <th className="pb-1 pr-2">Tipo</th>}
               <th className="pb-1">Estado Caché</th>
             </tr>
           </thead>
@@ -383,17 +383,21 @@ function EventLog({ events }: { events: CoherenceEvent[] }) {
                     : <span className="text-emerald-400">READ </span>}
                 </td>
                 <td className="pr-2 text-slate-300">{fmtAddr(ev.address)}</td>
-                <td className="pr-2 text-slate-400">
-                  N{ev.source_node}→N{ev.target_node}
-                </td>
+                {arch === 'NUMA' && (
+                  <td className="pr-2 text-slate-400">
+                    N{ev.source_node}→N{ev.target_node}
+                  </td>
+                )}
                 <td className={`pr-2 font-bold ${ev.latency_ms > 150 ? 'text-red-400' : 'text-emerald-400'}`}>
                   {ev.latency_ms.toFixed(1)}ms
                 </td>
-                <td className="pr-2">
-                  {ev.is_remote
-                    ? <span className="text-orange-400">REMOTO</span>
-                    : <span className="text-emerald-500">LOCAL </span>}
-                </td>
+                {arch === 'NUMA' && (
+                  <td className="pr-2">
+                    {ev.is_remote
+                      ? <span className="text-orange-400">REMOTO</span>
+                      : <span className="text-emerald-500">LOCAL </span>}
+                  </td>
+                )}
                 <td className="text-slate-400">
                   {Object.entries(ev.cache_snapshot)
                     .map(([cid, st]) => (
@@ -454,24 +458,26 @@ function StatsBar({ stats, arch }: { stats: SimStats; arch: ArchType }) {
       color: stats.avg_latency_ms > 100 ? 'text-red-400' : 'text-blue-400',
       border: 'border-blue-800',
     },
-    {
-      label: 'Accesos Locales',
-      value: stats.local_accesses.toString(),
-      sub: arch === 'NUMA' ? '20ms por acceso' : 'N/A en UMA',
-      color: 'text-indigo-400',
-      border: 'border-indigo-800',
-    },
-    {
-      label: 'Accesos Remotos',
-      value: stats.remote_accesses.toString(),
-      sub: arch === 'NUMA' ? '200ms por acceso' : 'N/A en UMA',
-      color: 'text-rose-400',
-      border: 'border-rose-800',
-    },
+    ...(arch === 'NUMA' ? [
+      {
+        label: 'Accesos Locales',
+        value: stats.local_accesses.toString(),
+        sub: '20ms por acceso',
+        color: 'text-indigo-400',
+        border: 'border-indigo-800',
+      },
+      {
+        label: 'Accesos Remotos',
+        value: stats.remote_accesses.toString(),
+        sub: '200ms por acceso',
+        color: 'text-rose-400',
+        border: 'border-rose-800',
+      },
+    ] : []),
   ];
 
   return (
-    <div className="grid grid-cols-3 lg:grid-cols-6 gap-3 px-6 pb-4">
+    <div className={`grid gap-3 px-6 pb-4 ${arch === 'NUMA' ? 'grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 lg:grid-cols-4'}`}>
       {cards.map(c => (
         <div key={c.label}
           className={`bg-slate-900/60 border ${c.border} rounded-xl p-3 text-center`}>
@@ -502,6 +508,7 @@ function App() {
     ws.current.onmessage = (event) => {
       const data: SimulationState = JSON.parse(event.data);
       setState(data);
+      setArch(data.arch);
       // Rastrear el último core y dirección activos para resaltar
       if (data.events.length > 0) {
         const latest = data.events[0];
@@ -724,7 +731,7 @@ function App() {
 
       {/* ── Log de Eventos MSI (ancho completo) ── */}
       <div className="px-6 pb-8">
-        <EventLog events={state.events} />
+        <EventLog events={state.events} arch={arch} />
       </div>
 
       <footer className="text-center text-slate-600 text-xs pb-4">

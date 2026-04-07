@@ -49,27 +49,50 @@ class SimulationManager:
 
     def reset(self):
         self.is_running = False
-        self.cores = [
-            CoreState(
-                id=i,
-                node_id=i // (CORE_COUNT // NODE_COUNT),
-                cache_state=CacheState.INVALID,
-                last_latency=0.0,
-                total_time=0.0,
-            )
-            for i in range(CORE_COUNT)
-        ]
-        self.nodes = [
-            MemoryNode(
-                id=i,
-                local_cores=[
-                    j for j in range(CORE_COUNT)
-                    if j // (CORE_COUNT // NODE_COUNT) == i
-                ],
-                total_memory=SHARED_DATASET_SIZE // NODE_COUNT,
-            )
-            for i in range(NODE_COUNT)
-        ]
+
+        if self.arch == ArchType.UMA:
+            # UMA: todos los cores comparten un único bus plano — sin jerarquía de nodos
+            self.cores = [
+                CoreState(
+                    id=i,
+                    node_id=0,
+                    cache_state=CacheState.INVALID,
+                    last_latency=0.0,
+                    total_time=0.0,
+                )
+                for i in range(CORE_COUNT)
+            ]
+            self.nodes = [
+                MemoryNode(
+                    id=0,
+                    local_cores=list(range(CORE_COUNT)),
+                    total_memory=SHARED_DATASET_SIZE,
+                )
+            ]
+        else:
+            # NUMA: cores divididos en nodos, cada nodo con su memoria local
+            self.cores = [
+                CoreState(
+                    id=i,
+                    node_id=i // (CORE_COUNT // NODE_COUNT),
+                    cache_state=CacheState.INVALID,
+                    last_latency=0.0,
+                    total_time=0.0,
+                )
+                for i in range(CORE_COUNT)
+            ]
+            self.nodes = [
+                MemoryNode(
+                    id=i,
+                    local_cores=[
+                        j for j in range(CORE_COUNT)
+                        if j // (CORE_COUNT // NODE_COUNT) == i
+                    ],
+                    total_memory=SHARED_DATASET_SIZE // NODE_COUNT,
+                )
+                for i in range(NODE_COUNT)
+            ]
+
         self.coherence = CoherenceManager(CORE_COUNT)
 
         # Dataset compartido: 16 direcciones de memoria con valores aleatorios
@@ -216,8 +239,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 ds_idx = random.randint(0, DATASET_VISIBLE - 1)
                 address = manager.dataset[ds_idx].address
 
-                # 2. Nodo destino: en NUMA puede ser local o remoto
-                target_node_id = random.randint(0, NODE_COUNT - 1)
+                # 2. Nodo destino:
+                #    UMA → siempre el mismo nodo compartido (sin concepto de remoto)
+                #    NUMA → puede ser local o remoto según el nodo elegido
+                if manager.arch == ArchType.UMA:
+                    target_node_id = core.node_id  # siempre 0 en UMA
+                else:
+                    target_node_id = random.randint(0, NODE_COUNT - 1)
                 is_remote = (core.node_id != target_node_id)
 
                 # 3. Tipo de operación: 30% escritura, 70% lectura
