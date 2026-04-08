@@ -170,36 +170,6 @@ En cada ciclo (cada 50ms) el backend:
 
 ---
 
-## Modificaciones rápidas para la defensa
-
-### Cambiar ratio lectura/escritura
-```python
-# simulator/main.py
-is_write = random.random() < 0.3   # 0.3 = 30% escrituras
-```
-
-### Cambiar latencias NUMA
-```python
-# simulator/logic/latency.py
-NUMA_LOCAL_LATENCY  = 0.020   # 20ms local
-NUMA_REMOTE_LATENCY = 0.200   # 200ms remoto
-```
-
-### Escalar cores y nodos
-```python
-# simulator/main.py
-CORE_COUNT = 4   # aumentar a 8
-NODE_COUNT = 2   # aumentar a 4
-```
-
-### Ampliar dataset visible
-```python
-# simulator/main.py
-DATASET_VISIBLE = 16   # aumentar a 32
-```
-
----
-
 ## Verificación rápida
 
 1. Abrir `http://localhost:5173`
